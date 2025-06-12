@@ -15,8 +15,8 @@ export class DatabaseController {
 
   @Post('create-table')
   async createTable(@Body() createTableDto: CreateTableDto) {
-    const { dbName, tableName, columns } = createTableDto;
-    await this.dbService.createTable(dbName, tableName, columns);
+    const { dbName, tableName, description, columns } = createTableDto;
+    await this.dbService.createTable(dbName, tableName, description, columns);
     return { message: `Tabla '${tableName}' creada en la base '${dbName}'` };
   }
 

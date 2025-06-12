@@ -23,6 +23,7 @@ export class DatabaseService {
   async createTable(
     dbName: string,
     tableName: string,
+    description: string | null,
     columns: {
       name: string;
       type: string;
@@ -61,6 +62,12 @@ export class DatabaseService {
 
     const pool = this.getPool(dbName);
     await pool.query(query);
+
+    if (description) {
+      const safeDescription = description.replace(/'/g, "''"); // escapa comillas simples
+
+      await pool.query(`COMMENT ON TABLE "${tableName}" IS '${safeDescription}'`);
+    }
   }
 
   async addColumn(
