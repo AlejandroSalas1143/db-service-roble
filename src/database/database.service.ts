@@ -20,32 +20,85 @@ export class DatabaseService {
     return this.pools.get(dbName)!;
   }
 
-  async createTable(dbName: string, tableName: string, columns: { name: string; type: string }[]) {
-    this.validateName(tableName)
+  async createTable(
+    dbName: string,
+    tableName: string,
+    columns: {
+      name: string;
+      type: string;
+      defaultValue?: string;
+      isNullable?: boolean;
+      isPrimary?: boolean;
+    }[]
+  ) {
+    this.validateName(tableName);
 
     for (const col of columns) {
-      this.validateName(col.name)
-      this.validateType(col.type)
+      this.validateName(col.name);
+      this.validateType(col.type);
     }
 
-    const columnsSql = columns
-      .map(col => `"${col.name}" ${col.type}`)
-      .join(', ');
+    const columnsSql = columns.map(col => {
+      let colDef = `"${col.name}" ${col.type}`;
 
-    const query = `CREATE TABLE IF NOT EXISTS "${tableName}" (${columnsSql});`;
+      if (col.defaultValue) {
+        colDef += ` DEFAULT ${col.defaultValue}`;
+      }
+
+      if (col.isNullable === false) {
+        colDef += ` NOT NULL`;
+      }
+
+      return colDef;
+    });
+
+    const primaryKeys = columns.filter(col => col.isPrimary).map(col => `"${col.name}"`);
+    if (primaryKeys.length > 0) {
+      columnsSql.push(`PRIMARY KEY (${primaryKeys.join(", ")})`);
+    }
+
+    const query = `CREATE TABLE IF NOT EXISTS "${tableName}" (\n  ${columnsSql.join(",\n  ")}\n);`;
 
     const pool = this.getPool(dbName);
     await pool.query(query);
   }
 
-  async addColumn(dbName: string, table: string, column: { name: string; type: string }) {
+  async addColumn(
+    dbName: string,
+    table: string,
+    column: {
+      name: string;
+      type: string;
+      defaultValue?: string;
+      isNullable?: boolean;
+      isPrimary?: boolean;
+    }
+  ) {
     this.validateName(table);
     this.validateName(column.name);
     this.validateType(column.type);
 
-    const query = `ALTER TABLE "${table}" ADD COLUMN "${column.name}" ${column.type};`;
-    await this.getPool(dbName).query(query);
+    let columnDef = `"${column.name}" ${column.type}`;
+
+    if (column.defaultValue !== undefined) {
+      columnDef += ` DEFAULT ${column.defaultValue}`;
+    }
+
+    if (column.isNullable === false) {
+      columnDef += ` NOT NULL`;
+    }
+
+    const addColumnQuery = `ALTER TABLE "${table}" ADD COLUMN ${columnDef};`;
+
+    const pool = this.getPool(dbName);
+    await pool.query(addColumnQuery);
+
+    if (column.isPrimary) {
+      const addPkQuery = `ALTER TABLE "${table}" ADD PRIMARY KEY ("${column.name}");`;
+      await pool.query(addPkQuery);
+    }
   }
+
 
   async dropColumn(dbName: string, table: string, columnName: string) {
     this.validateName(table);
