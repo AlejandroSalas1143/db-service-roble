@@ -9,7 +9,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 
 @Controller('database')
-@UseGuards(JwtAuthGuard)
+// @UseGuards(JwtAuthGuard)
 export class DatabaseController {
   constructor(private readonly dbService: DatabaseService) { }
 
