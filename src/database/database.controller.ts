@@ -8,8 +8,8 @@ import { AlterColumnTypeDto } from './dto/alter-column-type.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 
-@Controller(':dbName/database')
-@UseGuards(JwtAuthGuard)
+@Controller('database')
+// @UseGuards(JwtAuthGuard)
 export class DatabaseController {
   constructor(private readonly dbService: DatabaseService) { }
 
@@ -20,7 +20,7 @@ export class DatabaseController {
     return { message: `Tabla '${tableName}' creada en la base '${dbName}'` };
   }
 
-  @Get('tables-info')
+  @Get(':dbName/usage')
   async getAllTablesInfo(@Param('dbName') dbName: string) {
     const tablesInfo = await this.dbService.getAllTablesInfo(dbName);
     return { tables: tablesInfo };

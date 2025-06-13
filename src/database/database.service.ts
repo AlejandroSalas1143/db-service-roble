@@ -80,7 +80,6 @@ export class DatabaseService {
   }[]> {
     const pool = this.getPool(dbName);
 
-    // Obtiene nombres de tablas visibles en public
     const tablesRes = await pool.query(`
     SELECT table_name
     FROM information_schema.tables
@@ -100,41 +99,52 @@ export class DatabaseService {
     for (const row of tablesRes.rows) {
       const tableName = row.table_name;
 
-      // 1. Descripción
-      const commentResult = await pool.query(
-        `SELECT obj_description(('"' || $1 || '"')::regclass, 'pg_class') AS description`,
-        [tableName]
+      const escapedName = `"${tableName.replace(/"/g, '""')}"`; // Escapa el nombre de la tabla para evitar inyecciones SQL
+      if (tableName.includes("migrations") || tableName==="User") {
+        continue;
+      }
+
+      await pool.query(`ANALYZE ${escapedName}`);
+
+      // 1. Descripción del comentario de tabla
+      const commentRes = await pool.query(
+        `SELECT obj_description($1::regclass, 'pg_class') AS description`,
+        [escapedName]
       );
 
-      // 2. Estimación de filas y tamaño
-      const statsResult = await pool.query(
-        `SELECT reltuples::BIGINT AS rowsEstimated,
-              pg_size_pretty(pg_total_relation_size($1::regclass)) AS size
+      // 2. Estadísticas de la tabla
+      const statsRes = await pool.query(
+        `SELECT reltuples::BIGINT AS rows_estimated
        FROM pg_class
-       WHERE relname = $1`,
-        [tableName]
+       WHERE oid = $1::regclass`,
+        [escapedName]
       );
 
+      const sizeRes = await pool.query(
+        `SELECT pg_size_pretty(pg_total_relation_size($1::regclass)) AS size`,
+        [escapedName]
+      );
       // 3. Número de columnas
-      const columnsResult = await pool.query(
-        `SELECT COUNT(*) AS columnsCount
+      const columnsRes = await pool.query(
+        `SELECT COUNT(*)::INT AS columns_count
        FROM information_schema.columns
-       WHERE table_name = $1`,
+       WHERE table_name = $1 AND table_schema = 'public'`,
         [tableName]
       );
 
       results.push({
         name: tableName,
-        description: commentResult.rows[0]?.description || null,
-        rowsEstimated: Number(statsResult.rows[0]?.rowsestimated ?? 0),
-        size: statsResult.rows[0]?.size || "0 bytes",
+        description: commentRes.rows[0]?.description || null,
+        rowsEstimated: statsRes.rows[0]?.rows_estimated ?? 0,
+        size: sizeRes.rows[0]?.size || "0 bytes",
         realtimeEnabled: false,
-        columnsCount: Number(columnsResult.rows[0]?.columnscount ?? 0),
+        columnsCount: columnsRes.rows[0]?.columns_count ?? 0,
       });
     }
 
     return results;
   }
+
 
 
   async addColumn(
