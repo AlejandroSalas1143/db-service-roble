@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Put, Get, Query, Delete, UseGuards } from '@nestjs/common';
+import { Controller, Post, Body, Put, Get, Query, Delete, UseGuards, Param } from '@nestjs/common';
 import { DatabaseService } from './database.service';
 import { CreateTableDto } from './dto/create-table.dto';
 import { AddColumnDto } from './dto/add-column.dto';
@@ -8,8 +8,8 @@ import { AlterColumnTypeDto } from './dto/alter-column-type.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 
-@Controller('database')
-// @UseGuards(JwtAuthGuard)
+@Controller(':dbName/database')
+@UseGuards(JwtAuthGuard)
 export class DatabaseController {
   constructor(private readonly dbService: DatabaseService) { }
 
@@ -18,6 +18,12 @@ export class DatabaseController {
     const { dbName, tableName, description, columns } = createTableDto;
     await this.dbService.createTable(dbName, tableName, description, columns);
     return { message: `Tabla '${tableName}' creada en la base '${dbName}'` };
+  }
+
+  @Get('tables-info')
+  async getAllTablesInfo(@Param('dbName') dbName: string) {
+    const tablesInfo = await this.dbService.getAllTablesInfo(dbName);
+    return { tables: tablesInfo };
   }
 
   @Post('add-column')

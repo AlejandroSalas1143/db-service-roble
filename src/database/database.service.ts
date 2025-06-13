@@ -70,6 +70,73 @@ export class DatabaseService {
     }
   }
 
+  async getAllTablesInfo(dbName: string): Promise<{
+    name: string;
+    description: string | null;
+    rowsEstimated: number;
+    size: string;
+    realtimeEnabled: boolean;
+    columnsCount: number;
+  }[]> {
+    const pool = this.getPool(dbName);
+
+    // Obtiene nombres de tablas visibles en public
+    const tablesRes = await pool.query(`
+    SELECT table_name
+    FROM information_schema.tables
+    WHERE table_schema = 'public'
+      AND table_type = 'BASE TABLE';
+  `);
+
+    const results: {
+      name: string;
+      description: string | null;
+      rowsEstimated: number;
+      size: string;
+      realtimeEnabled: boolean;
+      columnsCount: number;
+    }[] = [];
+
+    for (const row of tablesRes.rows) {
+      const tableName = row.table_name;
+
+      // 1. Descripción
+      const commentResult = await pool.query(
+        `SELECT obj_description(('"' || $1 || '"')::regclass, 'pg_class') AS description`,
+        [tableName]
+      );
+
+      // 2. Estimación de filas y tamaño
+      const statsResult = await pool.query(
+        `SELECT reltuples::BIGINT AS rowsEstimated,
+              pg_size_pretty(pg_total_relation_size($1::regclass)) AS size
+       FROM pg_class
+       WHERE relname = $1`,
+        [tableName]
+      );
+
+      // 3. Número de columnas
+      const columnsResult = await pool.query(
+        `SELECT COUNT(*) AS columnsCount
+       FROM information_schema.columns
+       WHERE table_name = $1`,
+        [tableName]
+      );
+
+      results.push({
+        name: tableName,
+        description: commentResult.rows[0]?.description || null,
+        rowsEstimated: Number(statsResult.rows[0]?.rowsestimated ?? 0),
+        size: statsResult.rows[0]?.size || "0 bytes",
+        realtimeEnabled: false,
+        columnsCount: Number(columnsResult.rows[0]?.columnscount ?? 0),
+      });
+    }
+
+    return results;
+  }
+
+
   async addColumn(
     dbName: string,
     table: string,
