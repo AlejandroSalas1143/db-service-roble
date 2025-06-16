@@ -234,6 +234,25 @@ export class DatabaseService {
     }
   }
 
+  async getTableColumns(dbName: string, schema: string, table: string) {
+    const pool = this.getPool(dbName);
+    const client = await pool.connect();
+
+    const result = await client.query(
+      `
+    SELECT 
+      column_name AS name,
+      data_type AS type,
+      udt_name AS format
+    FROM information_schema.columns
+    WHERE table_schema = $1 AND table_name = $2
+    ORDER BY ordinal_position
+    `,
+      [schema, table]
+    );
+    return result.rows;
+  }
+
 
 
   async dropColumn(dbName: string, table: string, columnName: string) {

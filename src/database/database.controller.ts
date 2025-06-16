@@ -25,6 +25,11 @@ export class DatabaseController {
     const tablesInfo = await this.dbService.getAllTablesInfo(dbName);
     return { tables: tablesInfo };
   }
+  @Get(':dbName/columns')
+  async getTableColumns(@Param('dbName') dbName: string, @Query('schema') schema: string = 'public', @Query('table') table: string) {
+    const columns = await this.dbService.getTableColumns(dbName, schema, table);
+    return { columns };
+  }
 
   @Post('add-column')
   async addColumn(@Body() dto: AddColumnDto) {
