@@ -100,7 +100,7 @@ export class DatabaseService {
       const tableName = row.table_name;
 
       const escapedName = `"${tableName.replace(/"/g, '""')}"`; // Escapa el nombre de la tabla para evitar inyecciones SQL
-      if (tableName.includes("migrations") || tableName==="User") {
+      if (tableName.includes("migrations") || tableName === "User") {
         continue;
       }
 
@@ -162,10 +162,17 @@ export class DatabaseService {
     this.validateName(column.name);
     this.validateType(column.type);
 
+    // Construcción del fragmento SQL
     let columnDef = `"${column.name}" ${column.type}`;
 
     if (column.defaultValue !== undefined) {
-      columnDef += ` DEFAULT ${column.defaultValue}`;
+      const val = column.defaultValue.trim();
+      const isSqlFunction = /\w+\(.*\)/.test(val); // Detecta funciones SQL como now(), uuid_generate_v4()
+      const isString = isNaN(Number(val)) &&
+        !["true", "false", "null"].includes(val.toLowerCase()) &&
+        !isSqlFunction;
+
+      columnDef += ` DEFAULT ${isString ? `'${val}'` : val}`;
     }
 
     if (column.isNullable === false) {
@@ -175,13 +182,58 @@ export class DatabaseService {
     const addColumnQuery = `ALTER TABLE "${table}" ADD COLUMN ${columnDef};`;
 
     const pool = this.getPool(dbName);
-    await pool.query(addColumnQuery);
+    const client = await pool.connect();
 
-    if (column.isPrimary) {
-      const addPkQuery = `ALTER TABLE "${table}" ADD PRIMARY KEY ("${column.name}");`;
-      await pool.query(addPkQuery);
+    try {
+      await client.query("BEGIN");
+
+      // Verificar si la columna ya existe
+      const checkColumnExistsQuery = `
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_name = $1 AND column_name = $2;
+    `;
+      const existing = await client.query(checkColumnExistsQuery, [table, column.name]);
+
+      if ((existing.rowCount ?? 0) > 0) {
+        throw new Error(`La columna "${column.name}" ya existe en la tabla "${table}"`);
+      }
+
+      // Agregar columna
+      await client.query(addColumnQuery);
+
+      // Agregar clave primaria si se especificó
+      if (column.isPrimary) {
+        const checkPkQuery = `
+        SELECT kcu.column_name
+        FROM information_schema.table_constraints tc
+        JOIN information_schema.key_column_usage kcu
+          ON tc.constraint_name = kcu.constraint_name
+          AND tc.table_schema = tc.table_schema
+        WHERE tc.constraint_type = 'PRIMARY KEY'
+          AND tc.table_name = $1;
+      `;
+        const result = await client.query(checkPkQuery, [table]);
+
+        if (result.rows.length > 0) {
+          throw new Error(
+            `La tabla "${table}" ya tiene una clave primaria: ${result.rows.map((r) => r.column_name).join(", ")}`
+          );
+        }
+
+        const addPkQuery = `ALTER TABLE "${table}" ADD PRIMARY KEY ("${column.name}");`;
+        await client.query(addPkQuery);
+      }
+
+      await client.query("COMMIT");
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
     }
   }
+
 
 
   async dropColumn(dbName: string, table: string, columnName: string) {
