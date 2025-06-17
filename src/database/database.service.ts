@@ -145,8 +145,6 @@ export class DatabaseService {
     return results;
   }
 
-
-
   async addColumn(
     dbName: string,
     table: string,
@@ -196,13 +194,11 @@ export class DatabaseService {
       const existing = await client.query(checkColumnExistsQuery, [table, column.name]);
 
       if ((existing.rowCount ?? 0) > 0) {
-        throw new Error(`La columna "${column.name}" ya existe en la tabla "${table}"`);
+        throw new Error(`La columna ${column.name} ya existe en la tabla ${table}`);
       }
 
-      // Agregar columna
       await client.query(addColumnQuery);
 
-      // Agregar clave primaria si se especificó
       if (column.isPrimary) {
         const checkPkQuery = `
         SELECT kcu.column_name
@@ -217,7 +213,7 @@ export class DatabaseService {
 
         if (result.rows.length > 0) {
           throw new Error(
-            `La tabla "${table}" ya tiene una clave primaria: ${result.rows.map((r) => r.column_name).join(", ")}`
+            `La tabla ${table} ya tiene una clave primaria: ${result.rows.map((r) => r.column_name).join(", ")}`
           );
         }
 
@@ -228,7 +224,11 @@ export class DatabaseService {
       await client.query("COMMIT");
     } catch (err) {
       await client.query("ROLLBACK");
-      throw err;
+
+      if (err instanceof BadRequestException) {
+        throw err;
+      }
+      throw new BadRequestException(err.message);
     } finally {
       client.release();
     }
@@ -238,22 +238,32 @@ export class DatabaseService {
     const pool = this.getPool(dbName);
     const client = await pool.connect();
 
-    const result = await client.query(
-      `
-    SELECT 
-      column_name AS name,
-      data_type AS type,
-      udt_name AS format
-    FROM information_schema.columns
-    WHERE table_schema = $1 AND table_name = $2
-    ORDER BY ordinal_position
-    `,
-      [schema, table]
-    );
-    return result.rows;
+    try {
+      const result = await client.query(
+        `
+      SELECT 
+        column_name AS name,
+        data_type AS type,
+        udt_name AS format,
+        is_nullable
+      FROM information_schema.columns
+      WHERE table_schema = $1 AND table_name = $2
+      ORDER BY ordinal_position
+      `,
+        [schema, table]
+      );
+
+      return result.rows.map((col) => ({
+        ...col,
+        is_nullable: col.is_nullable === 'YES',
+      }));
+    } catch (error) {
+      console.error(`Error en getTableColumns:`, error.message);
+      throw new BadRequestException('Error al obtener las columnas de la tabla');
+    } finally {
+      client.release();
+    }
   }
-
-
 
   async dropColumn(dbName: string, table: string, columnName: string) {
     this.validateName(table);
