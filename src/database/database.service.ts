@@ -242,20 +242,35 @@ export class DatabaseService {
       const result = await client.query(
         `
       SELECT 
-        column_name AS name,
-        data_type AS type,
-        udt_name AS format,
-        is_nullable
-      FROM information_schema.columns
-      WHERE table_schema = $1 AND table_name = $2
-      ORDER BY ordinal_position
+        c.column_name AS name,
+        c.data_type AS type,
+        c.udt_name AS format,
+        c.is_nullable,
+        (kcu.column_name IS NOT NULL) AS is_primary
+      FROM information_schema.columns c
+      LEFT JOIN information_schema.key_column_usage kcu
+        ON c.table_name = kcu.table_name
+        AND c.column_name = kcu.column_name
+        AND c.table_schema = kcu.table_schema
+        AND kcu.constraint_name IN (
+          SELECT constraint_name
+          FROM information_schema.table_constraints
+          WHERE constraint_type = 'PRIMARY KEY'
+            AND table_name = $2
+            AND table_schema = $1
+        )
+      WHERE c.table_schema = $1 AND c.table_name = $2
+      ORDER BY c.ordinal_position
       `,
         [schema, table]
       );
 
       return result.rows.map((col) => ({
-        ...col,
+        name: col.name,
+        type: col.type,
+        format: col.format,
         is_nullable: col.is_nullable === 'YES',
+        is_primary: col.is_primary,
       }));
     } catch (error) {
       console.error(`Error en getTableColumns:`, error.message);
@@ -264,6 +279,7 @@ export class DatabaseService {
       client.release();
     }
   }
+
 
   async getTableWithColumnsAndData(dbName: string, schema: string, tableName: string) {
     const pool = this.getPool(dbName);
