@@ -31,6 +31,11 @@ export class DatabaseController {
     return { columns };
   }
 
+  @Get(':dbName/table-data')
+  async getTableData(@Param('dbName') dbName: string, @Query('schema') schema = 'public', @Query('table') tableName: string,) {
+    return this.dbService.getTableWithColumnsAndData(dbName, schema, tableName);
+  }
+  
   @Post('add-column')
   async addColumn(@Body() dto: AddColumnDto) {
     await this.dbService.addColumn(dto.dbName, dto.tableName, dto.column);
