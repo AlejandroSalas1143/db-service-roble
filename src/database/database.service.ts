@@ -280,7 +280,6 @@ export class DatabaseService {
     }
   }
 
-
   async getTableWithColumnsAndData(dbName: string, schema: string, tableName: string) {
     const pool = this.getPool(dbName);
     const client = await pool.connect();
@@ -359,6 +358,7 @@ export class DatabaseService {
       throw new Error(`Nombre inválido: ${name}`);
     }
   }
+
   private validateType(type: string) {
     const validTypes = [
       'text',
@@ -387,7 +387,6 @@ export class DatabaseService {
     return res.rows.map(row => row.column_name);
   }
 
-
   async insertRecord(
     dbName: string,
     tableName: string,
@@ -397,10 +396,11 @@ export class DatabaseService {
     const client = await pool.connect();
 
     try {
+      console.log(tableName)
       const columnsMeta = await this.getTableColumns(dbName, 'public', tableName);
       const columnNames = Object.keys(record);
       const values = Object.values(record);
-
+      console.log("Columnas meta:", values);
       const invalidColumns: string[] = [];
       const invalidTypes: string[] = [];
 
@@ -446,8 +446,6 @@ export class DatabaseService {
       client.release();
     }
   }
-
-
 
   async readRecords(
     dbName: string,
@@ -504,20 +502,22 @@ export class DatabaseService {
   }
 
   private isTypeCompatible(pgType: string, value: any): boolean {
+    const tryNumber = (val: any) => !isNaN(val) && !isNaN(Number(val));
     switch (pgType) {
       case "integer":
       case "int":
       case "smallint":
       case "bigint":
-        return typeof value === "number" && Number.isInteger(value);
+        return tryNumber(value) && Number.isInteger(value);
 
       case "numeric":
       case "decimal":
       case "real":
       case "double precision":
-        return typeof value === "number";
+        return tryNumber(value);
 
       case "boolean":
+      case "bool":
         return typeof value === "boolean" || value === "true" || value === "false";
 
       case "text":

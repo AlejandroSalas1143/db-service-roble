@@ -60,13 +60,12 @@ export class DatabaseController {
     return { success: true };
   }
 
-  @Post('insert')
-  async insertRecord(@Body() body: {
-    dbName: string;
+  @Post(':dbName/insert')
+  async insertRecord(@Param('dbName') dbName: string, @Body() body: {
     tableName: string;
     record: Record<string, any>;
   }) {
-    return this.dbService.insertRecord(body.dbName, body.tableName, body.record);
+    return this.dbService.insertRecord(dbName, body.tableName, body.record);
   }
 
   @Get('read')
