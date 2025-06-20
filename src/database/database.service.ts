@@ -396,16 +396,15 @@ export class DatabaseService {
     const client = await pool.connect();
 
     try {
-      console.log(tableName)
       const columnsMeta = await this.getTableColumns(dbName, 'public', tableName);
       const columnNames = Object.keys(record);
-      const values = Object.values(record);
-      console.log("Columnas meta:", values);
       const invalidColumns: string[] = [];
       const invalidTypes: string[] = [];
 
+      const values: any[] = [];
+
       for (const col of columnNames) {
-        const value = record[col];
+        const rawValue = record[col];
         const column = columnsMeta.find((c) => c.name === col);
 
         if (!column) {
@@ -415,12 +414,16 @@ export class DatabaseService {
 
         const pgType = column.type;
 
-        if (value === null) {
+        if (rawValue === null) {
           if (!column.is_nullable) {
             invalidTypes.push(`${col} (no acepta null)`);
           }
-        } else if (!this.isTypeCompatible(pgType, value)) {
+          values.push(null);
+        } else if (!this.isTypeCompatible(pgType, rawValue)) {
           invalidTypes.push(`${col} (esperado: ${pgType})`);
+        } else {
+          // ✅ Solo se transforma si es válido
+          values.push(this.transformValue(pgType, rawValue));
         }
       }
 
@@ -446,6 +449,7 @@ export class DatabaseService {
       client.release();
     }
   }
+
 
   async readRecords(
     dbName: string,
@@ -536,4 +540,38 @@ export class DatabaseService {
         return true;
     }
   }
+
+  private transformValue(pgType: string, value: any): any {
+    if (value === null || value === "NULL") return null;
+
+    switch (pgType) {
+      case "integer":
+      case "int":
+      case "smallint":
+      case "bigint":
+        return parseInt(value);
+
+      case "numeric":
+      case "decimal":
+      case "real":
+      case "double precision":
+        return parseFloat(value);
+
+      case "boolean":
+      case "bool":
+        if (value === "true" || value === true) return true;
+        if (value === "false" || value === false) return false;
+        return null;
+
+      case "timestamp":
+      case "timestamptz":
+      case "date":
+      case "time":
+        return new Date(value).toISOString();
+
+      default:
+        return value;
+    }
+  }
+
 }
