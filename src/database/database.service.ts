@@ -281,50 +281,56 @@ export class DatabaseService {
   }
 
   async getTableWithColumnsAndData(dbName: string, schema: string, tableName: string) {
-    const pool = this.getPool(dbName);
-    const client = await pool.connect();
+  const pool = this.getPool(dbName);
+  const client = await pool.connect();
 
-    try {
-      if (!/^[a-zA-Z0-9_]+$/.test(schema) || !/^[a-zA-Z0-9_]+$/.test(tableName)) {
-        throw new BadRequestException("Nombre de tabla o esquema inválido.");
-      }
+  try {
+    if (!/^[a-zA-Z0-9_]+$/.test(schema) || !/^[a-zA-Z0-9_]+$/.test(tableName)) {
+      throw new BadRequestException("Nombre de tabla o esquema inválido.");
+    }
 
-      const columnInfoQuery = `
+    const columnInfoQuery = `
       SELECT column_name, data_type
       FROM information_schema.columns
       WHERE table_name = $1 AND table_schema = $2
       ORDER BY ordinal_position
     `;
-      const columnInfo = await client.query(columnInfoQuery, [tableName, schema]);
+    const columnInfo = await client.query(columnInfoQuery, [tableName, schema]);
 
-      if (columnInfo.rowCount === 0) {
-        throw new BadRequestException(`La tabla ${tableName} no existe en el esquema ${schema}.`);
-      }
-
-      const dataQuery = `SELECT * FROM "${schema}"."${tableName}"`;
-      const data = await client.query(dataQuery);
-
-      const columns = columnInfo.rows.map((col) => ({
-        name: col.column_name,
-        type: col.data_type,
-      }));
-
-      return {
-        columns,
-        rows: data.rows,
-      };
-    } catch (error) {
-      console.error(`Error al consultar la tabla ${schema}.${tableName}:`, error);
-
-      if (error instanceof BadRequestException) {
-        throw error;
-      }
-
-      throw new BadRequestException("No se pudo consultar la tabla.");
-    } finally {
-      client.release();
+    if (columnInfo.rowCount === 0) {
+      throw new BadRequestException(`La tabla ${tableName} no existe en el esquema ${schema}.`);
     }
+
+    const columns = columnInfo.rows.map((col) => ({
+      name: col.column_name,
+      type: col.data_type,
+    }));
+
+    const hasIdColumn = columns.some(col => col.name === 'id');
+
+    const dataQuery = `
+      SELECT * FROM "${schema}"."${tableName}"
+      ${hasIdColumn ? 'ORDER BY id' : ''}
+    `;
+    const data = await client.query(dataQuery);
+
+    return {
+      columns,
+      rows: data.rows,
+    };
+  } catch (error) {
+    console.error(`Error al consultar la tabla ${schema}.${tableName}:`, error);
+
+    if (error instanceof BadRequestException) {
+      throw error;
+    }
+
+    throw new BadRequestException("No se pudo consultar la tabla.");
+  } finally {
+    client.release();
   }
+}
+
 
   async dropColumn(dbName: string, table: string, columnName: string) {
     this.validateName(table);
@@ -413,7 +419,6 @@ export class DatabaseService {
         }
 
         const pgType = column.type;
-
         if (rawValue === null) {
           if (!column.is_nullable) {
             invalidTypes.push(`${col} (no acepta null)`);
@@ -507,12 +512,16 @@ export class DatabaseService {
 
   private isTypeCompatible(pgType: string, value: any): boolean {
     const tryNumber = (val: any) => !isNaN(val) && !isNaN(Number(val));
+    const isInteger = (val: any): boolean => {
+      const num = Number(val);
+      return Number.isInteger(num);
+    };
     switch (pgType) {
       case "integer":
       case "int":
       case "smallint":
       case "bigint":
-        return tryNumber(value) && Number.isInteger(value);
+        return isInteger(value);
 
       case "numeric":
       case "decimal":
