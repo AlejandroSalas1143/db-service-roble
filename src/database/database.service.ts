@@ -388,31 +388,66 @@ export class DatabaseService {
   }
 
 
-  async insertRecord(dbName: string, tableName: string, record: Record<string, any>) {
-
-    const existingColumns = await this.getColumns(dbName, tableName);
-
-    // 2. Extraer las columnas del record que te están enviando
-    const columns = Object.keys(record);
-
-    // 3. Filtrar columnas que NO existen en la tabla
-    const invalidColumns = columns.filter(c => !existingColumns.includes(c));
-
-    // 4. Si hay columnas inválidas, lanzar error
-    if (invalidColumns.length > 0) {
-      throw new BadRequestException(`Columnas inválidas: ${invalidColumns.join(', ')}`);
-    }
-
+  async insertRecord(
+    dbName: string,
+    tableName: string,
+    record: Record<string, any>
+  ) {
     const pool = this.getPool(dbName);
-    const values = Object.values(record);
-    const params = values.map((_, i) => `$${i + 1}`).join(', ');
+    const client = await pool.connect();
 
-    const query = `INSERT INTO "${tableName}" (${columns
-      .map(c => `"${c}"`)
-      .join(', ')}) VALUES (${params}) RETURNING *;`;
-    const result = await pool.query(query, values);
-    return result.rows[0];
+    try {
+      const columnsMeta = await this.getTableColumns(dbName, 'public', tableName);
+      const columnNames = Object.keys(record);
+      const values = Object.values(record);
+
+      const invalidColumns: string[] = [];
+      const invalidTypes: string[] = [];
+
+      for (const col of columnNames) {
+        const value = record[col];
+        const column = columnsMeta.find((c) => c.name === col);
+
+        if (!column) {
+          invalidColumns.push(col);
+          continue;
+        }
+
+        const pgType = column.type;
+
+        if (value === null) {
+          if (!column.is_nullable) {
+            invalidTypes.push(`${col} (no acepta null)`);
+          }
+        } else if (!this.isTypeCompatible(pgType, value)) {
+          invalidTypes.push(`${col} (esperado: ${pgType})`);
+        }
+      }
+
+      if (invalidColumns.length > 0) {
+        throw new BadRequestException(`Columnas inválidas: ${invalidColumns.join(", ")}`);
+      }
+
+      if (invalidTypes.length > 0) {
+        throw new BadRequestException(`Tipo inválido en columnas: ${invalidTypes.join(", ")}`);
+      }
+
+      const params = values.map((_, i) => `$${i + 1}`).join(", ");
+      const query = `INSERT INTO "${tableName}" (${columnNames
+        .map((c) => `"${c}"`)
+        .join(", ")}) VALUES (${params}) RETURNING *;`;
+
+      const result = await client.query(query, values);
+      return result.rows[0];
+    } catch (error) {
+      console.error("Error al insertar registro:", error.message);
+      throw new BadRequestException("No se pudo insertar el registro.");
+    } finally {
+      client.release();
+    }
   }
+
+
 
   async readRecords(
     dbName: string,
@@ -466,5 +501,39 @@ export class DatabaseService {
     const query = `DELETE FROM "${tableName}" WHERE "${idColumn}" = $1 RETURNING *;`;
     const result = await pool.query(query, [idValue]);
     return result.rows[0];
+  }
+
+  private isTypeCompatible(pgType: string, value: any): boolean {
+    switch (pgType) {
+      case "integer":
+      case "int":
+      case "smallint":
+      case "bigint":
+        return typeof value === "number" && Number.isInteger(value);
+
+      case "numeric":
+      case "decimal":
+      case "real":
+      case "double precision":
+        return typeof value === "number";
+
+      case "boolean":
+        return typeof value === "boolean" || value === "true" || value === "false";
+
+      case "text":
+      case "varchar":
+      case "char":
+      case "uuid":
+        return typeof value === "string";
+
+      case "timestamp":
+      case "timestamptz":
+      case "date":
+      case "time":
+        return typeof value === "string" && !isNaN(Date.parse(value));
+
+      default:
+        return true;
+    }
   }
 }
