@@ -29,7 +29,6 @@ export class AllExceptionsFilter implements ExceptionFilter {
       method: req.method,
       url: req.originalUrl,
       status,
-      ip: req.ip,
       user: (req as any).user?.email || 'Anonimo',
       dbName: (req as any).user?.dbName || 'Desconocido',
       body: req.method !== 'GET' ? filterBody(req.body) : undefined,

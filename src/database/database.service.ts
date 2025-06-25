@@ -444,12 +444,11 @@ export class DatabaseService {
       const query = `INSERT INTO "${tableName}" (${columnNames
         .map((c) => `"${c}"`)
         .join(", ")}) VALUES (${params}) RETURNING *;`;
-
       const result = await client.query(query, values);
       return result.rows[0];
     } catch (error) {
       console.error("Error al insertar registro:", error.message);
-      throw new BadRequestException("No se pudo insertar el registro.");
+      throw new BadRequestException(error.message);
     } finally {
       client.release();
     }

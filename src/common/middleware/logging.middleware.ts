@@ -17,7 +17,6 @@ export class LoggingMiddleware implements NestMiddleware {
         method,
         url: originalUrl,
         status,
-        ip: req.ip,
         user: (req as any).user?.email || 'Anonimo',
         dbName: (req as any).user?.dbName || 'Desconocido',
         body: method !== 'GET' ? filterBody(body) : undefined,
