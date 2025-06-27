@@ -32,13 +32,47 @@ export class DatabaseService {
       isPrimary?: boolean;
     }[]
   ) {
+    if (!tableName || !tableName.trim()) {
+      throw new BadRequestException('El nombre de la tabla no puede estar vacío.');
+    }
+
     this.validateName(tableName);
 
+    if (!columns || columns.length === 0) {
+      throw new BadRequestException('Debe definir al menos una columna.');
+    }
+
+    // Verificar nombres duplicados
+    const duplicateNames = columns
+      .map(c => c.name)
+      .filter((name, i, arr) => arr.indexOf(name) !== i);
+    if (duplicateNames.length > 0) {
+      throw new BadRequestException(`Las siguientes columnas están duplicadas: ${[...new Set(duplicateNames)].join(", ")}`);
+    }
+
     for (const col of columns) {
+      if (!col.name || !col.name.trim()) {
+        throw new BadRequestException('El nombre de la columna no puede estar vacío.');
+      }
+      if (!col.type || !col.type.trim()) {
+        throw new BadRequestException(`La columna "${col.name}" no tiene un tipo definido.`);
+      }
       this.validateName(col.name);
       this.validateType(col.type);
     }
 
+    const pool = this.getPool(dbName);
+
+    // Verificar si la tabla ya existe
+    const existing = await pool.query(
+      `SELECT to_regclass($1) as exists`,
+      [tableName]
+    );
+    if (existing.rows[0]?.exists) {
+      throw new BadRequestException(`Ya existe una tabla con el nombre "${tableName}".`);
+    }
+
+    // Construir SQL
     const columnsSql = columns.map(col => {
       let colDef = `"${col.name}" ${col.type}`;
 
@@ -53,14 +87,14 @@ export class DatabaseService {
       return colDef;
     });
 
-    const primaryKeys = columns.filter(col => col.isPrimary).map(col => `"${col.name}"`);
+    const primaryKeys = columns
+      .filter(col => col.isPrimary)
+      .map(col => `"${col.name}"`);
     if (primaryKeys.length > 0) {
       columnsSql.push(`PRIMARY KEY (${primaryKeys.join(", ")})`);
     }
 
-    const query = `CREATE TABLE IF NOT EXISTS "${tableName}" (\n  ${columnsSql.join(",\n  ")}\n);`;
-
-    const pool = this.getPool(dbName);
+    const query = `CREATE TABLE "${tableName}" (\n  ${columnsSql.join(",\n  ")}\n);`;
 
     try {
       await pool.query(query);
@@ -74,6 +108,7 @@ export class DatabaseService {
       throw new BadRequestException('No se pudo crear la tabla. Verifica los datos.');
     }
   }
+
 
   async getAllTablesInfo(dbName: string): Promise<{
     name: string;
