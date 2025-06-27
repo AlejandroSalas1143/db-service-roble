@@ -20,10 +20,20 @@ export class AllExceptionsFilter implements ExceptionFilter {
         ? exception.getStatus()
         : HttpStatus.INTERNAL_SERVER_ERROR;
 
-    const message =
+    const exceptionResponse =
       exception instanceof HttpException
         ? exception.getResponse()
         : (exception as any)?.message || 'Error interno del servidor';
+
+    // ✅ Normalizar el mensaje para que siempre sea un string
+    let message: string;
+    if (typeof exceptionResponse === 'string') {
+      message = exceptionResponse;
+    } else if (typeof exceptionResponse === 'object' && 'message' in exceptionResponse) {
+      message = (exceptionResponse as any).message;
+    } else {
+      message = 'Error desconocido';
+    }
 
     const errorLog = {
       method: req.method,
@@ -33,13 +43,16 @@ export class AllExceptionsFilter implements ExceptionFilter {
       dbName: (req as any).user?.dbName || 'Desconocido',
       body: req.method !== 'GET' ? filterBody(req.body) : undefined,
       query: req.query,
-      error: typeof message === 'string' ? message : JSON.stringify(message),
+      error: message,
       stack: (exception as any)?.stack,
     };
 
     winstonLogger.error(`[${req.method}] ${req.originalUrl} -> ${errorLog.error}`, errorLog);
 
-    res.status(status).json({ statusCode: status, message });
+    res.status(status).json({
+      statusCode: status,
+      message, // ✅ Ya es string plano
+    });
   }
 }
 
