@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, InternalServerErrorException } from '@nestjs/common';
 import { Pool } from 'pg';
 
 @Injectable()
@@ -61,12 +61,17 @@ export class DatabaseService {
     const query = `CREATE TABLE IF NOT EXISTS "${tableName}" (\n  ${columnsSql.join(",\n  ")}\n);`;
 
     const pool = this.getPool(dbName);
-    await pool.query(query);
 
-    if (description) {
-      const safeDescription = description.replace(/'/g, "''"); // escapa comillas simples
+    try {
+      await pool.query(query);
 
-      await pool.query(`COMMENT ON TABLE "${tableName}" IS '${safeDescription}'`);
+      if (description) {
+        const safeDescription = description.replace(/'/g, "''");
+        await pool.query(`COMMENT ON TABLE "${tableName}" IS '${safeDescription}'`);
+      }
+    } catch (error) {
+      console.error('Error en createTable:', error);
+      throw new BadRequestException('No se pudo crear la tabla. Verifica los datos.');
     }
   }
 
@@ -281,55 +286,55 @@ export class DatabaseService {
   }
 
   async getTableWithColumnsAndData(dbName: string, schema: string, tableName: string) {
-  const pool = this.getPool(dbName);
-  const client = await pool.connect();
+    const pool = this.getPool(dbName);
+    const client = await pool.connect();
 
-  try {
-    if (!/^[a-zA-Z0-9_]+$/.test(schema) || !/^[a-zA-Z0-9_]+$/.test(tableName)) {
-      throw new BadRequestException("Nombre de tabla o esquema inválido.");
-    }
+    try {
+      if (!/^[a-zA-Z0-9_]+$/.test(schema) || !/^[a-zA-Z0-9_]+$/.test(tableName)) {
+        throw new BadRequestException("Nombre de tabla o esquema inválido.");
+      }
 
-    const columnInfoQuery = `
+      const columnInfoQuery = `
       SELECT column_name, data_type
       FROM information_schema.columns
       WHERE table_name = $1 AND table_schema = $2
       ORDER BY ordinal_position
     `;
-    const columnInfo = await client.query(columnInfoQuery, [tableName, schema]);
+      const columnInfo = await client.query(columnInfoQuery, [tableName, schema]);
 
-    if (columnInfo.rowCount === 0) {
-      throw new BadRequestException(`La tabla ${tableName} no existe en el esquema ${schema}.`);
-    }
+      if (columnInfo.rowCount === 0) {
+        throw new BadRequestException(`La tabla ${tableName} no existe en el esquema ${schema}.`);
+      }
 
-    const columns = columnInfo.rows.map((col) => ({
-      name: col.column_name,
-      type: col.data_type,
-    }));
+      const columns = columnInfo.rows.map((col) => ({
+        name: col.column_name,
+        type: col.data_type,
+      }));
 
-    const hasIdColumn = columns.some(col => col.name === 'id');
+      const hasIdColumn = columns.some(col => col.name === 'id');
 
-    const dataQuery = `
+      const dataQuery = `
       SELECT * FROM "${schema}"."${tableName}"
       ${hasIdColumn ? 'ORDER BY id' : ''}
     `;
-    const data = await client.query(dataQuery);
+      const data = await client.query(dataQuery);
 
-    return {
-      columns,
-      rows: data.rows,
-    };
-  } catch (error) {
-    console.error(`Error al consultar la tabla ${schema}.${tableName}:`, error);
+      return {
+        columns,
+        rows: data.rows,
+      };
+    } catch (error) {
+      console.error(`Error al consultar la tabla ${schema}.${tableName}:`, error);
 
-    if (error instanceof BadRequestException) {
-      throw error;
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+
+      throw new BadRequestException("No se pudo consultar la tabla.");
+    } finally {
+      client.release();
     }
-
-    throw new BadRequestException("No se pudo consultar la tabla.");
-  } finally {
-    client.release();
   }
-}
 
 
   async dropColumn(dbName: string, table: string, columnName: string) {
@@ -337,7 +342,12 @@ export class DatabaseService {
     this.validateName(columnName);
 
     const query = `ALTER TABLE "${table}" DROP COLUMN "${columnName}";`;
-    await this.getPool(dbName).query(query);
+    try {
+      await this.getPool(dbName).query(query);
+    } catch (error) {
+      console.error(`Error al eliminar columna ${columnName}:`, error);
+      throw new BadRequestException(`No se pudo eliminar la columna "${columnName}".`);
+    }
   }
 
   async renameColumn(dbName: string, table: string, oldName: string, newName: string) {
@@ -447,8 +457,13 @@ export class DatabaseService {
       const result = await client.query(query, values);
       return result.rows[0];
     } catch (error) {
-      console.error("Error al insertar registro:", error.message);
-      throw new BadRequestException(error.message);
+      console.error("Error al insertar registro:", error);
+
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+
+      throw new InternalServerErrorException("Error interno al insertar registro.");
     } finally {
       client.release();
     }
